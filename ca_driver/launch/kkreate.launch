@@ -1,0 +1,37 @@
+<launch>
+  <include file="$(find ca_driver)/launch/create_2.launch" />
+  <!-- <include file="$(find raspicam_node)/launch/camerav2_410x308_30fps.launch" /> -->
+
+  <include file="$(find rplidar_ros)/launch/rplidar_a3.launch" />
+
+  <!-- <include file="$(find sweep_ros)/launch/sweep2scan.launch" /> -->
+  <!--
+  <node pkg="xv_11_laser_driver" type="neato_laser_publisher" name="neato_lidar">
+    <rosparam>
+      port: "/dev/ttyACM0"
+      firmware_version: 2
+      frame_id: "laser"
+    </rosparam>
+  </node>
+  -->
+
+  <!-- <node pkg="tf" type="static_transform_publisher" name="base_to_laser" args="-0.06 0.0 0 1.57 0 0 /base_link /laser 2" /> -->
+  <node pkg="tf" type="static_transform_publisher" name="base_to_laser" args="-0.06 0.0 0 3.14 0 0 /base_link /laser 2" />
+
+  <!-- 
+  <include file="$(find openni2_launch)/launch/openni2.launch" />
+  <include file="$(find sweep_ros)/launch/general_pc2l.launch" />
+  <node pkg="tf" type="static_transform_publisher" name="base_to_cam" args="-0.06 0.0 0 0.00 0 0 /base_link /camera_link 2" />
+  -->
+
+  <!-- <include file="$(find rf2o_laser_odometry)/launch/rf2o_laser_odometry.launch" /> -->
+  
+  <include file="$(find ca_driver)/launch/hector_slam_create.launch" />
+  <!-- <include file="$(find ca_driver)/launch/scan_match_create.launch" /> -->
+
+  <!-- <include file="$(find ca_driver)/launch/gmap_kkreate_params.launch" /> -->
+
+  <include file="$(find imu_rtimulib)/launch/imu_rtimulib.launch" />
+
+  <node pkg="ca_driver" name="enc_gyro_odom" type="enc_gyro_odom.py"/>
+</launch>

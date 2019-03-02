@@ -1,0 +1,8 @@
+<launch>
+
+  <include file="$(find openni2_launch)/launch/openni2.launch" />
+  <include file="$(find sweep_ros)/launch/general_pc2l.launch" />
+  <node pkg="tf" type="static_transform_publisher" name="base_to_cam" args="-0.06 0.0 0 0.00 0 0 /base_link /camera_link 2" />
+  
+  <include file="$(find ca_driver)/launch/hector_slam_create.launch" />
+</launch>

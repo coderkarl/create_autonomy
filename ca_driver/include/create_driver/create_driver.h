@@ -80,6 +80,12 @@ private:
   sensor_msgs::JointState joint_state_msg_;
   bool is_running_slowly_;
 
+  double prev_yaw;
+  double yaw_rate_filt;
+  double yaw_rad_filt;
+  std_msgs::Float32 yaw_msg;
+  std_msgs::Float32 delta_yaw_msg;
+
   // ROS params
   std::string dev_;
   std::string base_frame_;
@@ -88,6 +94,7 @@ private:
   double loop_hz_;
   bool publish_tf_;
   int baud_;
+  double yaw_fudge_factor_;
 
   void cmdVelCallback(const geometry_msgs::TwistConstPtr& msg);
   void debrisLEDCallback(const std_msgs::BoolConstPtr& msg);
@@ -150,6 +157,9 @@ protected:
   ros::Publisher bumper_pub_;
   ros::Publisher wheeldrop_pub_;
   ros::Publisher wheel_joint_pub_;
+
+  ros::Publisher yaw_pub;
+  ros::Publisher delta_yaw_pub;
 
 public:
   explicit CreateDriver(ros::NodeHandle& nh);

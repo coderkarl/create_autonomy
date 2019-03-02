@@ -42,11 +42,16 @@ CreateDriver::CreateDriver(ros::NodeHandle& nh)
   std::string robot_model_name;
   priv_nh_.param<std::string>("dev", dev_, "/dev/ttyUSB0");
   priv_nh_.param<std::string>("robot_model", robot_model_name, "CREATE_2");
-  priv_nh_.param<std::string>("base_frame", base_frame_, "base_footprint");
+  priv_nh_.param<std::string>("base_frame", base_frame_, "base_link_enc");
   priv_nh_.param<std::string>("odom_frame", odom_frame_, "odom");
   priv_nh_.param<double>("latch_cmd_duration", latch_duration_, 0.2);
   priv_nh_.param<double>("loop_hz", loop_hz_, 10.0);
   priv_nh_.param<bool>("publish_tf", publish_tf_, true);
+  priv_nh_.param<double>("yaw_fudge_factor", yaw_fudge_factor_, 0.9);
+
+  prev_yaw = 0;
+  yaw_rate_filt = 0;
+  yaw_rad_filt = 0;
 
   if (robot_model_name == "ROOMBA_400")
   {
@@ -123,7 +128,7 @@ CreateDriver::CreateDriver(ros::NodeHandle& nh)
   play_song_sub_ = nh.subscribe("play_song", 10, &CreateDriver::playSongCallback, this);
 
   // Setup publishers
-  odom_pub_ = nh.advertise<nav_msgs::Odometry>("odom", 30);
+  odom_pub_ = nh.advertise<nav_msgs::Odometry>("odom_enc", 30);
   clean_btn_pub_ = nh.advertise<std_msgs::Empty>("clean_button", 30);
   day_btn_pub_ = nh.advertise<std_msgs::Empty>("day_button", 30);
   hour_btn_pub_ = nh.advertise<std_msgs::Empty>("hour_button", 30);
@@ -142,6 +147,9 @@ CreateDriver::CreateDriver(ros::NodeHandle& nh)
   bumper_pub_ = nh.advertise<ca_msgs::Bumper>("bumper", 30);
   wheeldrop_pub_ = nh.advertise<std_msgs::Empty>("wheeldrop", 30);
   wheel_joint_pub_ = nh.advertise<sensor_msgs::JointState>("joint_states", 10);
+
+  yaw_pub = nh.advertise<std_msgs::Float32>("create_yaw",10);
+  delta_yaw_pub = nh.advertise<std_msgs::Float32>("delta_yaw",10);
 
   // Setup diagnostics
   diagnostics_.add("Battery Status", this, &CreateDriver::updateBatteryDiagnostics);
@@ -428,8 +436,39 @@ void CreateDriver::publishOdom()
   create::Pose pose = robot_->getPose();
   create::Vel vel = robot_->getVel();
 
+  double delta_yaw = pose.yaw - prev_yaw;
+  prev_yaw = pose.yaw;
+  if(delta_yaw > 6)
+    delta_yaw -= 6.28318;
+  else if(delta_yaw < -6)
+    delta_yaw += 6.28318;
+
+  delta_yaw_msg.data = delta_yaw;
+  delta_yaw_pub.publish(delta_yaw_msg);
+
+  /*if(yaw_rad_filt < -2 and pose.yaw > 2)
+  {
+    yaw_rad_filt += 6.283;
+  }
+  else if(yaw_rad_filt > 2 and pose.yaw < -2)
+  {
+    pose.yaw += 6.283;
+  }
+  yaw_rad_filt = 0.5*yaw_rad_filt + 0.5*yaw_fudge_factor_*pose.yaw;
+  if(yaw_rad_filt > 3.14159)
+    yaw_rad_filt -= 6.283;*/
+
+  yaw_rad_filt = yaw_rad_filt + delta_yaw*yaw_fudge_factor_;
+  /*if(yaw_rad_filt > 3.14159)
+    yaw_rad_filt -= 6.28318;
+  else if(yaw_rad_filt <= -3.14159)
+    yaw_rad_filt += 6.28318;*/
+
+  yaw_msg.data = yaw_rad_filt;
+  yaw_pub.publish(yaw_msg);
+
   // Populate position info
-  geometry_msgs::Quaternion quat = tf::createQuaternionMsgFromRollPitchYaw(0, 0, pose.yaw);
+  geometry_msgs::Quaternion quat = tf::createQuaternionMsgFromRollPitchYaw(0, 0, yaw_rad_filt);
   odom_msg_.header.stamp = ros::Time::now();
   odom_msg_.pose.pose.position.x = pose.x;
   odom_msg_.pose.pose.position.y = pose.y;
@@ -438,7 +477,8 @@ void CreateDriver::publishOdom()
   // Populate velocity info
   odom_msg_.twist.twist.linear.x = vel.x;
   odom_msg_.twist.twist.linear.y = vel.y;
-  odom_msg_.twist.twist.angular.z = vel.yaw;
+  yaw_rate_filt = 0.8*yaw_rate_filt + 0.2*vel.yaw;
+  odom_msg_.twist.twist.angular.z = yaw_rate_filt;//vel.yaw;
 
   // Update covariances
   odom_msg_.pose.covariance[0] = static_cast<double>(pose.covariance[0]);
@@ -478,10 +518,10 @@ void CreateDriver::publishJointState()
   float wheelRadius = model_.getWheelDiameter() / 2.0;
 
   joint_state_msg_.header.stamp = ros::Time::now();
-  joint_state_msg_.position[0] = robot_->getLeftWheelDistance() / wheelRadius;
-  joint_state_msg_.position[1] = robot_->getRightWheelDistance() / wheelRadius;
-  joint_state_msg_.velocity[0] = robot_->getRequestedLeftWheelVel() / wheelRadius;
-  joint_state_msg_.velocity[1] = robot_->getRequestedRightWheelVel() / wheelRadius;
+  joint_state_msg_.position[0] = robot_->getLeftWheelDistance(); // / wheelRadius;
+  joint_state_msg_.position[1] = robot_->getRightWheelDistance(); // / wheelRadius;
+  joint_state_msg_.velocity[0] = robot_->getRequestedLeftWheelVel(); // / wheelRadius;
+  joint_state_msg_.velocity[1] = robot_->getRequestedRightWheelVel(); // / wheelRadius;
   wheel_joint_pub_.publish(joint_state_msg_);
 }
 

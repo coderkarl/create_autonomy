@@ -14,7 +14,7 @@ class DiffDriveController():
         self.kb= 0.001 #0.01
         self.MAX_SPEED = max_speed
         self.MAX_OMEGA = max_omega
-        self.target_rho = 0.2
+        self.target_rho = 0.05
         
     def update_target_rho(self, new_rho):
         self.target_rho = new_rho
@@ -76,4 +76,4 @@ class DiffDriveController():
             w = 0.0
             done = True
         
-        return v,w,done, alpha, pos_beta
+        return v,w,done, alpha, pos_beta, rho

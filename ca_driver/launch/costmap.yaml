@@ -1,0 +1,6 @@
+plugins: []
+
+observation_sources: base_scan
+base_scan: {data_type: LaserScan, sensor_frame: base_link, clearing: true, marking: true, topic: scan}
+static_map: false
+publish_frequency: 2.0

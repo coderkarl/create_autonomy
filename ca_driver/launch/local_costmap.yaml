@@ -1,0 +1,24 @@
+global_frame: /odom
+robot_base_frame: /base_link
+update_frequency: 2.0
+publish_frequency: 2.0
+static_map: false
+rolling_window: false
+width: 40.0
+height: 40.0
+resolution: 0.1
+origin_x: -20.0
+origin_y: -20.0
+transform_tolerance: 10.0
+obstacle_range: 24
+raytrace_range: 25
+
+robot_radius: 0.1
+inflation_radius: 0.12
+cost_scaling_factor: 1.5
+
+plugins:
+    - {name: obstacles,        type: "costmap_2d::ObstacleLayer"}
+obstacles:
+    observation_sources: base_scan
+    base_scan: {data_type: LaserScan, sensor_frame: base_link, clearing: true, marking: true, topic: scan}

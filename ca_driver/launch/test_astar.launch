@@ -1,0 +1,11 @@
+<launch>
+  <node pkg="avoid_obstacles" type="astar" name="astar">
+    <param name="obs_thresh" value="30" />
+    <param name="obs_weight" value="0.1" />
+    <param name="max_plan_time_sec" value="10.0" />
+    <param name="rx_odom" value="false" /> #true for sim
+    <!-- <remap from="wp_goal" to="/move_base_simple/goal" /> --> #for debugging
+    <remap from="costmap" to="/move_base/global_costmap/costmap" />
+  </node>
+  
+</launch>

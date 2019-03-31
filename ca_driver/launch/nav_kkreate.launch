@@ -1,16 +1,31 @@
 <launch>
   <!-- <node pkg="tf" type="static_transform_publisher" name="map_to_odom" args="0.0 0.0 0.0 0 0 0.0 /map /odom 10"/> -->
+  <!-- <node pkg="tf" type="static_transform_publisher" name="base_dummy" args="0.0 0.0 0.0 0 0 0.0 /base_footprint /base_link 10"/> -->
 
-  <node pkg="move_base" type="move_base" respawn="false" name="move_base" output="screen">
+  <node pkg="move_base" type="move_base" respawn="false" name="move_base">
+    <remap from="cmd_vel" to="ignore_vel" />
+    <remap from="odom" to="odom_enc" />
+    <remap from="/move_base_simple/goal" to="none_goal" /> -->
+    <!-- <remap from="/move_base_simple/goal" to="wp_goal" /> --> #Debugging move_base planner vs. using make_plan service
+
+
+    <rosparam file="$(find ca_driver)/config/move_base_params.yaml" command="load" />
+
     <rosparam file="$(find ca_driver)/config/costmap_common_params.yaml" command="load" ns="global_costmap" />
     <rosparam file="$(find ca_driver)/config/costmap_common_params.yaml" command="load" ns="local_costmap" />
     <rosparam file="$(find ca_driver)/config/local_costmap_params.yaml" command="load" />
     <rosparam file="$(find ca_driver)/config/global_costmap_params.yaml" command="load" />
     <rosparam file="$(find ca_driver)/config/base_local_planner_params.yaml" command="load" />
-    <param name="controller_frequency" value="5.0" />
-    <param name="clearing_rotation_allowed" value="false" />
-    <param name="base_global_planner" value="global_planner/GlobalPlanner" />
-    <param name="base_local_planner" value="base_local_planner/TrajectoryPlannerROS" />
-    <!-- <param name="base_local_planner" value="teb_local_planner/TebLocalPlannerROS" /> -->
+    <rosparam file="$(find ca_driver)/config/global_planner_params.yaml" command="load" />
+    <!-- <rosparam file="$(find ca_driver)/config/teb_local_planner_params.yaml" command="load" /> -->
   </node>
+
+  <include file="$(find ca_driver)/launch/hector_slam_create.launch" />
+  <include file="$(find ca_driver)/launch/test_astar.launch" />
+
+  <node pkg="ca_driver" type="kkreate_local_planner.py" name="kkreate_planner" output="screen">
+    <!-- <remap from="/move_base/GlobalPlanner/plan" to="path" /> -->
+    <remap from="/odom" to="/odom_enc"/>
+  </node>
+
 </launch>

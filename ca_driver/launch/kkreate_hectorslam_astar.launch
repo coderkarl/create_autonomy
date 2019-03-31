@@ -1,9 +1,12 @@
 <launch>
-  <node pkg="ca_driver" type="kkreate_local_planner.py" name="kkreate_planner" output="screen">
-    <remap from="/move_base/GlobalPlanner/plan" to="path" />
+  <node pkg="ca_driver" type="kkreate_local_planner.py" name="kkreate_planner" >
+    <!-- <remap from="/move_base/GlobalPlanner/plan" to="path" /> -->
     <remap from="/odom" to="/odom_enc"/>
   </node>
-  <node pkg="avoid_obstacles" type="avoid_obs" name="avoid_obs">
+
+  <!-- <include file="$(find ca_driver)/launch/hector_slam_create.launch" /> -->
+
+  <!-- <node pkg="avoid_obstacles" type="avoid_obs" name="avoid_obs" output="screen">
     <param name="plan_rate_hz" value="1.0" />
     <param name="map_res_m" value="0.1" />
     <param name="map_size" value="301" />
@@ -17,16 +20,20 @@
     <param name="reinflate_cost_thresh" value="30" />
     <param name="reinflate_radius" value="0.1" />
     <param name="use_PotFields" value="false" />
-  </node>
-  <node pkg="avoid_obstacles" type="astar" name="astar">
+  </node> -->
+
+  <node pkg="avoid_obstacles" type="astar" name="astar" >
     <param name="obs_thresh" value="30" />
     <param name="obs_weight" value="0.1" />
     <param name="max_plan_time_sec" value="10.0" />
     <param name="rx_odom" value="true" />
     <remap from="wp_goal" to="/move_base_simple/goal" />
+    <!-- <remap from="costmap" to="map" /> -->
   </node>
-</launch>
 
-# AvoidObs costmap is not getting published. Stuck in the scan callback somewhere... on the rpi3 with hectorslam pose
-#   AvoidObs costmap (thru the same avoid_obstacles params) worked okay with navsim with sim odom
-#   Cannot get nav_sim to run hector_slam_create.launch which publishes the pose vs. odom
+  <node pkg="costmap_2d" type="costmap_2d_node" name="costmap_node" output="screen">
+    <rosparam file="$(find ca_driver)/launch/example_params.yaml" command="load" ns="costmap"/>
+    <remap from="/costmap_node/costmap/costmap" to="costmap" />
+  </node>
+  
+</launch>

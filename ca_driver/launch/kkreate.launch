@@ -3,7 +3,7 @@
 
   <include file="$(find rplidar_ros)/launch/rplidar_a3.launch" />
 
-  <include file="$(find imu_rtimulib)/launch/imu_rtimulib.launch" />
+  <include file="$(find imu_rtimulib)/launch/imu_rtimulib.launch"/>
   <node pkg="ca_driver" name="enc_gyro_odom" type="enc_gyro_odom.py"/>
 
   <!-- <include file="$(find ca_driver)/launch/nav_kkreate.launch" /> -->  #RESTART THIS TO RESET TEST

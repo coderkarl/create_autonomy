@@ -16,6 +16,7 @@ PATH_STATE = 1
 SEEKING_CONE_STATE = 2
 SPINNING_STATE = 3
 TOUCHED_CONE_STATE = 4
+TURN_TO_CONE_STATE = 5
 STOPPED_STATE = 0
 
 class PathController():
@@ -45,8 +46,11 @@ class PathController():
         self.tf_listener = tf.TransformListener()
         
         self.found_cone = False
+        self.found_laser_cone = False
         self.local_cone_x = 1.0 # None
         self.local_cone_y = 0.0 # None
+        self.laser_cone_odom_x = 1.0
+        self.laser_cone_odom_y = 0.0
         self.bumped_cone = False
         self.ir_sensors = [0, 0, 0, 0, 0, 0]
         self.bump_count = 0
@@ -60,19 +64,23 @@ class PathController():
         self.status_pub = rospy.Publisher('kstate', Int16, queue_size = 10)
         
         #rospy.Subscriber('cmd_vel', Twist, self.drive_callback, queue_size=1)
+        #rospy.Subscriber('slam_out_pose', PoseStamped, self.bot_pose_callback, queue_size = 10)
         rospy.Subscriber('odom', Odometry, self.odom_callback, queue_size = 1)
         rospy.Subscriber('/move_base/GlobalPlanner/plan', Path, self.path_callback, queue_size = 1)
         rospy.Subscriber('/scan', LaserScan, self.scan_callback, queue_size = 1)
-        rospy.Subscriber('found_cone', Int16, self.found_cone_callback, queue_size = 1)
+        rospy.Subscriber('found_cone', Int16, self.found_cone_callback, queue_size = 5)
         rospy.Subscriber('raw_cone_pose', PoseStamped, self.raw_cone_callback, queue_size=2)
+        rospy.Subscriber('laser_cone_in_odom', PoseStamped, self.laser_cone_in_odom_callback, queue_size=2)
+        #rospy.Subscriber('expected_cone_in_laser',PoseStamped, self.cone_in_laser_callback, queue_size=5)
         #rospy.Subscriber('wp_goal', PoseStamped, self.goal_callback, queue_size=2)
         rospy.Subscriber('bumper', Bumper, self.bumper_callback, queue_size=2)
         rospy.Subscriber('clean_button', Empty, self.clean_button_callback, queue_size=2)
         rospy.Subscriber('next_wp', Empty, self.next_wp_callback, queue_size = 2)
         
-        reset_found_cone_time = rospy.Time.now()
+        self.reset_found_cone_time = rospy.Time.now()
+        self.reset_found_laser_cone_time = rospy.Time.now()
         
-        self.status = PATH_STATE
+        self.status = PATH_STATE        
     
     def found_cone_callback(self, msg):
         if(msg.data > 0):
@@ -202,7 +210,7 @@ class PathController():
                     dy = poses[ind2].pose.position.y - poses[ind1].pose.position.y
                     path_dist += np.sqrt(dx**2 + dy**2)
                     if(done_flag):
-                        print "reached final point for path_dist"
+                        #print "reached final point for path_dist"
                         break
                     ind1 = ind2
                     k += 1
@@ -214,8 +222,8 @@ class PathController():
                 #wp_step = 1		
 
                 init = wp_step
-                print "path dist: ", path_dist
-                print "wp step: ", wp_step
+                #print "path dist: ", path_dist
+                #print "wp step: ", wp_step
             for k in xrange(init,nPose,wp_step):
                 wp[0] = poses[k].pose.position.x
                 wp[1] = poses[k].pose.position.y
@@ -227,7 +235,7 @@ class PathController():
             
             #print "waypoints: ", self.waypoints
             self.goal = self.waypoints.pop(0)
-            print "initial goal: ", self.goal
+            #print "initial goal: ", self.goal
             
             self.goal_reached = False
         else:
@@ -240,14 +248,56 @@ class PathController():
         self.local_cone_x = data.pose.position.x
         self.local_cone_y = data.pose.position.y
         
+    def laser_cone_in_odom_callback(self, data):
+        time_since_check = (rospy.Time.now()-self.reset_found_laser_cone_time).to_sec()
+        if(not self.found_laser_cone and time_since_check > 5.0):
+            self.laser_cone_odom_x = data.pose.position.x
+            self.laser_cone_odom_y = data.pose.position.y
+            self.found_laser_cone = True        
+        
+    def cone_in_laser_callback(self, data):
+        self.local_cone_x = -data.pose.position.x #simple tf, UPDATE
+        self.local_cone_y = -data.pose.position.y
+        
     def bumper_callback(self, data):
         self.bumped_cone = data.is_left_pressed or data.is_right_pressed
         self.ir_sensors = [data.light_signal_left, data.light_signal_front_left, data.light_signal_center_left,
                            data.light_signal_center_right, data.light_signal_front_right, data.light_signal_right]
         
+    def turn_toward_cone(self):
+        self.get_bot_state()
+        bot_x = self.state[0]
+        bot_y = self.state[1]
+        des_yaw = math.atan2(self.laser_cone_odom_y - bot_y, self.laser_cone_odom_x - bot_x)
+        bot_yaw = self.state[2]
+        self.v = 0
+        self.w = 2.0*(des_yaw - bot_yaw)
+        if(abs(self.w) > 1.0):
+            self.w = 1.0*np.sign(self.w)
+        if(abs(self.w) < 0.2):
+            self.w = 0.2*np.sign(self.w)
+        
+        if(abs(des_yaw - bot_yaw) < 0.05):
+            self.found_laser_cone = False
+            self.reset_found_laser_cone_time = rospy.Time.now()
+        
+        print("\ndes yaw: ", des_yaw)
+        print("bot_yaw: ", bot_yaw)
+        print("w: ", self.w)
+        twist = Twist()
+        twist.linear.x = self.v
+        twist.angular.z = self.w
+        self.cmd_pub.publish(twist)
+        
+        self.status = TURN_TO_CONE_STATE
+        status_msg = Int16()
+        status_msg.data = self.status
+        self.status_pub.publish(status_msg)
+        
+    
     def touch_cone(self):
         
-        if ( (rospy.Time.now()-self.reset_found_cone_time).to_sec() > 1.0):
+        if ( (rospy.Time.now()-self.reset_found_cone_time).to_sec() > 2.0): # > 1.0
             self.found_cone = False
         
         if( (self.bumped_cone and max(self.ir_sensors[1:4]) > 100) or max(self.ir_sensors[1:4]) > 600):
@@ -281,7 +331,7 @@ class PathController():
             self.w = 1.0*angle_error
             if(abs(self.w) > 1.0):
                 self.w = 1.0*np.sign(self.w)
-                self.v = 0.1 #0.1 or 0.05 for cam vs laser cone find
+                self.v = 0.05 #0.1 or 0.05 for cam vs laser cone find
             if(cone_close):
                 self.v = 0.05
         
@@ -304,34 +354,25 @@ class PathController():
         self.status_pub.publish(status_msg)
         
     def execute_plan(self):
-        # Update robot pose state from tf listener
-        try:
-            (trans,quat) = self.tf_listener.lookupTransform('/odom', '/base_link', rospy.Time(0))
-            self.state[0] = trans[0]
-            self.state[1] = trans[1]
-            #quat_list = [quat.x, quat.y, quat.z, quat.w]
-            (roll, pitch, yaw) = euler_from_quaternion (quat)
-            self.state[2] = yaw
-        except (tf.LookupException, tf.ConnectivityException, tf.ExtrapolationException):
-            pass
-        
+        self.get_bot_state()
         # Local planner (no dynamic obstacle avoidance, hopefully to be done by global planner called frequently)
         if(not self.goal_reached or self.found_cone):
             self.v,self.w,self.goal_reached, alpha, pos_beta, rho = self.diff_drive_controller.compute_vel(self.state,self.goal)
             self.v = 0.2
             if(abs(alpha) > 0.15): #0.1
-                print "large error, slow down! alpha: ", alpha
+                #print "large error, slow down! alpha: ", alpha
                 self.v = 0.07 #0.05
             
             if(self.goal_reached):
-                print "wp goal reached"
+                aa = 1 #dummy line for if
+                #print "wp goal reached"
                 #print "v: ", v
                 #print "w: ", w
-                print "state: ", self.state
-                print "goal: ", self.goal
+                #print "state: ", self.state
+                #print "goal: ", self.goal
         elif( len(self.waypoints) > 0 and (self.goal_reached) ): # or abs(alpha) > 3.14/2) ):
             self.goal = self.waypoints.pop(0)
-            print "wp goal: ", self.goal
+            #print "wp goal: ", self.goal
             self.goal_reached = False
         else:
             self.v = 0.
@@ -369,6 +410,18 @@ class PathController():
         status_msg = Int16()
         status_msg.data = self.status
         self.status_pub.publish(status_msg)
+    
+    def get_bot_state(self):
+        # Update robot pose state from tf listener
+        try:
+            (trans,quat) = self.tf_listener.lookupTransform('/odom', '/base_link', rospy.Time(0))
+            self.state[0] = trans[0]
+            self.state[1] = trans[1]
+            #quat_list = [quat.x, quat.y, quat.z, quat.w]
+            (roll, pitch, yaw) = euler_from_quaternion (quat)
+            self.state[2] = yaw
+        except (tf.LookupException, tf.ConnectivityException, tf.ExtrapolationException):
+            pass
 
 if __name__ == '__main__':
     try:
@@ -379,6 +432,8 @@ if __name__ == '__main__':
         while not rospy.is_shutdown():
             if(path_control.found_cone):
                 path_control.touch_cone()
+            elif(path_control.found_laser_cone):
+                path_control.turn_toward_cone()
             else:
                 path_control.execute_plan()
             r.sleep()

@@ -18,6 +18,8 @@ class WaypointManager():
     def __init__(self):        
         self.tf_listener = tf.TransformListener()
         
+        self.tf_offset = rospy.Duration(0.0)
+        
         rospy.init_node('waypoint_manager')
         
         print('Initializing Waypoint Manager.')
@@ -36,7 +38,6 @@ class WaypointManager():
         
         waypoints  = np.array([
           [0, 0],
-          [1.0,0],
           [3.3, 0.6],
           [5.1, 0.0],
           ])
@@ -61,16 +62,19 @@ class WaypointManager():
         self.path_found = False
         
         self.wp_pub = rospy.Publisher('wp_goal', PoseStamped, queue_size=2)
-        self.wp_cone_pub = rospy.Publisher('wp_cone_pose', PoseStamped, queue_size=2)
+        self.wp_cone_in_laser = rospy.Publisher('expected_cone_in_laser', PoseStamped, queue_size=5) # used to filter where to check for cone circles in laser scan
+        self.laser_cone_in_odom_pub = rospy.Publisher('laser_cone_in_odom', PoseStamped, queue_size=2) # published if raw laser cone is acceptable, stop and turn toward this
         self.found_cone_pub = rospy.Publisher('found_cone', Int16, queue_size=2)
+        self.found_laser_cone_pub = rospy.Publisher('found_laser_cone', Int16, queue_size=2)
         self.next_wp_pub = rospy.Publisher('next_wp', Empty, queue_size = 1)
         
         time.sleep(1.0)
+        #self.tf_listener.waitForTransform("laser", "odom", rospy.Time(), rospy.Duration(4.0))
         self.update_waypoint()
         
         rospy.Subscriber('/move_base_simple/goal', PoseStamped, self.clicked_goal_callback, queue_size = 2)
         rospy.Subscriber('raw_cone_pose', PoseStamped, self.raw_cone_callback, queue_size=2)
-        #rospy.Subscriber('laser_cone_pose', PoseStamped, self.laser_cone_callback, queue_size=10)
+        rospy.Subscriber('laser_cone_pose', PoseStamped, self.laser_cone_callback, queue_size=10)
         rospy.Subscriber('obs_cone_pose', PoseStamped, self.obs_cone_callback, queue_size=2)
         #rospy.Subscriber('odom', Odometry, self.odom_callback, queue_size=1)
         #rospy.Subscriber('/move_base/status', GoalStatusArray, self.plan_status_callback, queue_size=1)
@@ -171,12 +175,12 @@ class WaypointManager():
             dy = self.map_wp.pose.position.y - p_in_odom.pose.position.y
             dist_sqd = dx*dx + dy*dy
             print("dist sqd: ", dist_sqd)
-            if(dist_sqd < 0.5):
+            if(dist_sqd < 0.3):
                 print("publish cone wp_goal")
                 #self.wp_cone_pub.publish(p_in_odom)
                 self.cur_wp = p_in_odom
                 self.wp_pub.publish(self.cur_wp)
-                if(data.pose.position.x < 1.0 and abs(data.pose.position.y) < 0.3):
+                if(data.pose.position.x < 0.7 and abs(data.pose.position.y) < 0.3): #Do NOT go straight to cone unless we are close, this should keep us on the global path around obstacles, even if we see thru obs
                     msg = Int16()
                     msg.data = 1
                     self.found_cone_pub.publish(msg)
@@ -190,15 +194,16 @@ class WaypointManager():
             dy = self.map_wp.pose.position.y - p_in_odom.pose.position.y
             dist_sqd = dx*dx + dy*dy
             print("dist sqd: ", dist_sqd)
-            if(dist_sqd < 2.0): #use 0.5, 2.0 for testing
-                print("publish cone wp_goal")
+            if(dist_sqd < 0.3): #use 0.5, 2.0 for testing
+                #print("publish laser cone near wp_goal")
                 #self.wp_cone_pub.publish(p_in_odom)
-                self.cur_wp = p_in_odom
-                self.wp_pub.publish(self.cur_wp)
-                if(data.pose.position.x < 1.0):
+                #self.cur_wp = p_in_odom
+                if(data.pose.position.x < 0.7):
+                    print("publish laser cone near wp_goal")
+                    self.laser_cone_in_odom_pub.publish(p_in_odom) #consider publishing inside if above
                     msg = Int16()
                     msg.data = 1
-                    self.found_cone_pub.publish(msg)
+                    self.found_laser_cone_pub.publish(msg)
                     self.time_since_cone = rospy.Time.now()
     
     def obs_cone_callback(self, data):
@@ -222,20 +227,41 @@ class WaypointManager():
         
         return p_in_odom
         
+    def xy_in_laser(self, poseStamped):
+        src_frame = poseStamped.header.frame_id
+        p_in_laser = None
+        try:
+            now = rospy.Time.now()
+            self.tf_listener.waitForTransform("laser", src_frame, now, rospy.Duration(1.0))
+            p_in_laser = self.tf_listener.transformPose("laser", poseStamped)
+            #self.tf_listener.waitForTransform("base_link", src_frame, now, rospy.Duration(1.0))
+            #p_in_base = self.tf_listener.transformPose("base_link", poseStamped)
+        except:
+            rospy.logwarn("Error converting to base_link frame")
+            p_in_laser = None
+            self.tf_offset = rospy.Duration(0.1)
+        
+        return p_in_laser
+        
     def execute(self):
+        self.cur_wp.header.stamp = rospy.Time.now()
+        self.map_wp.header.stamp = rospy.Time.now()
         if(self.found_cone):
-            if( (self.time_since_cone - rospy.Time.now()).to_sec() > 0.5 ):
+            if( (self.time_since_cone - rospy.Time.now()).to_sec() > 0.5 ): #0.5 for camera?, 10.0 for laser cone finder
                 self.found_cone = False
                 msg = Int16()
                 msg.data = 0
                 self.found_cone_pub.publish(msg)
+        expected_cone_in_laser = self.xy_in_laser(self.map_wp)
+        if(expected_cone_in_laser):
+            self.wp_cone_in_laser.publish(expected_cone_in_laser)
 
 if __name__ == '__main__':
     try:
         wp_man = WaypointManager()
         print("Starting Waypoint Manager")
 
-        r = rospy.Rate(20.0)
+        r = rospy.Rate(10.0)
         while not rospy.is_shutdown():
             wp_man.execute()
             r.sleep()

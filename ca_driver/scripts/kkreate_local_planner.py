@@ -47,10 +47,18 @@ class PathController():
         
         self.found_cone = False
         self.found_laser_cone = False
+        self.turn_to_cone = False
+        self.local_cone_angle = 0.0
         self.local_cone_x = 1.0 # None
         self.local_cone_y = 0.0 # None
         self.laser_cone_odom_x = 1.0
         self.laser_cone_odom_y = 0.0
+        self.local_cam_cone_x = 1.0
+        self.local_cam_cone_y = 0.0
+        self.local_laser_cone_x = 1.0
+        self.local_laser_cone_y = 0.0
+        self.cone_x = 1.0
+        self.cone_y = 0.0
         self.bumped_cone = False
         self.ir_sensors = [0, 0, 0, 0, 0, 0]
         self.bump_count = 0
@@ -68,7 +76,7 @@ class PathController():
         rospy.Subscriber('odom', Odometry, self.odom_callback, queue_size = 1)
         rospy.Subscriber('/move_base/GlobalPlanner/plan', Path, self.path_callback, queue_size = 1)
         rospy.Subscriber('/scan', LaserScan, self.scan_callback, queue_size = 1)
-        rospy.Subscriber('found_cone', Int16, self.found_cone_callback, queue_size = 5)
+        #rospy.Subscriber('found_cone', Int16, self.found_cone_callback, queue_size = 5)
         rospy.Subscriber('raw_cone_pose', PoseStamped, self.raw_cone_callback, queue_size=2)
         rospy.Subscriber('laser_cone_in_odom', PoseStamped, self.laser_cone_in_odom_callback, queue_size=2)
         #rospy.Subscriber('expected_cone_in_laser',PoseStamped, self.cone_in_laser_callback, queue_size=5)
@@ -76,6 +84,7 @@ class PathController():
         rospy.Subscriber('bumper', Bumper, self.bumper_callback, queue_size=2)
         rospy.Subscriber('clean_button', Empty, self.clean_button_callback, queue_size=2)
         rospy.Subscriber('next_wp', Empty, self.next_wp_callback, queue_size = 2)
+        rospy.Subscriber('wp_goal_in_base', PoseStamped, self.wp_goal_callback, queue_size=5)
         
         self.reset_found_cone_time = rospy.Time.now()
         self.reset_found_laser_cone_time = rospy.Time.now()
@@ -245,8 +254,8 @@ class PathController():
                 self.waypoints = []
             
     def raw_cone_callback(self, data): #Need to be careful, cannot use self.local_cone_x, self.local_cone_y in touch_cone() if ill-defined
-        self.local_cone_x = data.pose.position.x
-        self.local_cone_y = data.pose.position.y
+        self.local_cam_cone_x = data.pose.position.x
+        self.local_cam_cone_y = data.pose.position.y
         
     def laser_cone_in_odom_callback(self, data):
         time_since_check = (rospy.Time.now()-self.reset_found_laser_cone_time).to_sec()
@@ -256,8 +265,26 @@ class PathController():
             self.found_laser_cone = True        
         
     def cone_in_laser_callback(self, data):
-        self.local_cone_x = -data.pose.position.x #simple tf, UPDATE
-        self.local_cone_y = -data.pose.position.y
+        self.local_laser_cone_x = -data.pose.position.x #simple tf, UPDATE
+        self.local_laser_cone_y = -data.pose.position.y
+        
+    def wp_goal_callback(self,data):
+        self.local_cone_x = data.pose.position.x
+        self.local_cone_y = data.pose.position.y
+        dist_sqd = self.local_cone_x**2 + self.local_cone_y**2
+        print("wp_goal_in_base, dist_sqd = ", dist_sqd)
+        if(dist_sqd < 0.5):
+            self.found_cone = True
+            print("FOUND CONE")
+        else:
+            self.found_cone = False
+            
+        self.local_cone_angle = math.atan2(self.local_cone_y, self.local_cone_x)
+        if(abs(self.local_cone_angle) < 20.0*3.14/180.0):
+            self.turn_to_cone = False
+        else:
+            self.turn_to_cone = True
+            print("TURN TO CONE")
         
     def bumper_callback(self, data):
         self.bumped_cone = data.is_left_pressed or data.is_right_pressed
@@ -272,6 +299,8 @@ class PathController():
         bot_yaw = self.state[2]
         self.v = 0
         self.w = 2.0*(des_yaw - bot_yaw)
+        if(self.found_cone):
+            self.w = 2.0*(self.local_cone_angle);
         if(abs(self.w) > 1.0):
             self.w = 1.0*np.sign(self.w)
         if(abs(self.w) < 0.2):
@@ -297,8 +326,8 @@ class PathController():
     
     def touch_cone(self):
         
-        if ( (rospy.Time.now()-self.reset_found_cone_time).to_sec() > 2.0): # > 1.0
-            self.found_cone = False
+        #if ( (rospy.Time.now()-self.reset_found_cone_time).to_sec() > 10.0): # > 1.0
+        #    self.found_cone = False
         
         if( (self.bumped_cone and max(self.ir_sensors[1:4]) > 100) or max(self.ir_sensors[1:4]) > 600):
             self.bump_count += 1
@@ -314,7 +343,7 @@ class PathController():
         
         # NEED TO PREVENT FALSE POSITIVE CONE BUMPS, falling off carpet to floor causes bump
         # ACTUALLY, YOU FORGOT TO RESET bump_count! Was hard to debug b/c it didn't matter until close to next cone
-        if(self.bump_count > 2 and not self.touched_cone):
+        if(self.bump_count > 0 and not self.touched_cone):
             self.v = 0
             self.w = 0
             self.bump_count = 0
@@ -376,7 +405,7 @@ class PathController():
             self.goal_reached = False
         else:
             self.v = 0.
-            self.w = 0.5 # Eventually choose direction based on heading and dir from bot to cone
+            self.w = 0.0 # Eventually choose direction based on heading and dir from bot to cone
             
         if(self.reverse_flag):
             self.v = -0.1
@@ -431,7 +460,10 @@ if __name__ == '__main__':
         r = rospy.Rate(20.0)
         while not rospy.is_shutdown():
             if(path_control.found_cone):
-                path_control.touch_cone()
+                if(path_control.turn_to_cone):
+                    path_control.turn_toward_cone()
+                else:
+                    path_control.touch_cone()
             elif(path_control.found_laser_cone):
                 path_control.turn_toward_cone()
             else:

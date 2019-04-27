@@ -38,8 +38,8 @@ class WaypointManager():
         
         waypoints  = np.array([
           [0, 0],
-          [3.3, 0.6],
-          [5.1, 0.0],
+          [1.3, -0.6],
+          [4.1, 0.0],
           ])
           #[6.6, 1.2]
           #])
@@ -60,7 +60,10 @@ class WaypointManager():
         self.goal_dy = 0.0
         self.status_received = False
         self.path_found = False
+        self.laser_found_cone_count = 0
+        self.cam_found_cone_count = 0
         
+        self.cur_wp_in_base_pub = rospy.Publisher('wp_goal_in_base', PoseStamped, queue_size=5)
         self.wp_pub = rospy.Publisher('wp_goal', PoseStamped, queue_size=2)
         self.wp_cone_in_laser = rospy.Publisher('expected_cone_in_laser', PoseStamped, queue_size=5) # used to filter where to check for cone circles in laser scan
         self.laser_cone_in_odom_pub = rospy.Publisher('laser_cone_in_odom', PoseStamped, queue_size=2) # published if raw laser cone is acceptable, stop and turn toward this
@@ -71,6 +74,7 @@ class WaypointManager():
         time.sleep(1.0)
         #self.tf_listener.waitForTransform("laser", "odom", rospy.Time(), rospy.Duration(4.0))
         self.update_waypoint()
+        self.last_update_time = rospy.Time.now()
         
         rospy.Subscriber('/move_base_simple/goal', PoseStamped, self.clicked_goal_callback, queue_size = 2)
         rospy.Subscriber('raw_cone_pose', PoseStamped, self.raw_cone_callback, queue_size=2)
@@ -98,7 +102,10 @@ class WaypointManager():
         self.status_received = True
     
     def touched_cone_callback(self, msg):
-        self.update_waypoint()
+        now = rospy.Time.now()
+        if( (now-self.last_update_time).to_sec() > 1.0):
+            self.update_waypoint()
+        self.last_update_time = now
     
     def update_waypoint(self):
         print "Update Waypoint"
@@ -120,6 +127,8 @@ class WaypointManager():
                 self.next_wp_pub.publish(msg)
             if(self.wp_k >= self.num_waypoints):
                 self.wp_k = 1
+        self.laser_found_cone_count = 0
+        self.cam_found_cone_count = 0
             
         
     def clicked_goal_callback(self,data):
@@ -175,16 +184,18 @@ class WaypointManager():
             dy = self.map_wp.pose.position.y - p_in_odom.pose.position.y
             dist_sqd = dx*dx + dy*dy
             print("dist sqd: ", dist_sqd)
-            if(dist_sqd < 0.3):
-                print("publish cone wp_goal")
-                #self.wp_cone_pub.publish(p_in_odom)
-                self.cur_wp = p_in_odom
-                self.wp_pub.publish(self.cur_wp)
-                if(data.pose.position.x < 0.7 and abs(data.pose.position.y) < 0.3): #Do NOT go straight to cone unless we are close, this should keep us on the global path around obstacles, even if we see thru obs
-                    msg = Int16()
-                    msg.data = 1
-                    self.found_cone_pub.publish(msg)
-                    self.time_since_cone = rospy.Time.now()
+            if(dist_sqd < 0.3): #0.3
+                self.cam_found_cone_count += 1
+                if(self.cam_found_cone_count > 1): # and self.laser_found_cone_count > 0):
+                    self.cam_found_cone_count = 0
+                    print("publish cone wp_goal")
+                    self.cur_wp = p_in_odom
+                    self.wp_pub.publish(self.cur_wp)
+                    if(data.pose.position.x < 0.7 and abs(data.pose.position.y) < 0.3): #Do NOT go straight to cone unless we are close, this should keep us on the global path around obstacles, even if we see thru obs
+                        msg = Int16() #NOTE, this is not used now by local planner
+                        msg.data = 1
+                        self.found_cone_pub.publish(msg)
+                        self.time_since_cone = rospy.Time.now()
                     
     def laser_cone_callback(self, data):
         #print "Raw Cone Callback"
@@ -195,16 +206,16 @@ class WaypointManager():
             dist_sqd = dx*dx + dy*dy
             print("dist sqd: ", dist_sqd)
             if(dist_sqd < 0.3): #use 0.5, 2.0 for testing
-                #print("publish laser cone near wp_goal")
-                #self.wp_cone_pub.publish(p_in_odom)
-                #self.cur_wp = p_in_odom
-                if(data.pose.position.x < 0.7):
-                    print("publish laser cone near wp_goal")
-                    self.laser_cone_in_odom_pub.publish(p_in_odom) #consider publishing inside if above
-                    msg = Int16()
-                    msg.data = 1
-                    self.found_laser_cone_pub.publish(msg)
-                    self.time_since_cone = rospy.Time.now()
+                self.laser_found_cone_count += 1
+                if(self.laser_found_cone_count > 1):
+                    #self.laser_found_cone_count = 0
+                    if(data.pose.position.x < 0.7):
+                        print("publish laser cone near wp_goal")
+                        self.laser_cone_in_odom_pub.publish(p_in_odom) #consider publishing inside if above
+                        msg = Int16()
+                        msg.data = 1
+                        self.found_laser_cone_pub.publish(msg)
+                        self.time_since_cone = rospy.Time.now()
     
     def obs_cone_callback(self, data):
         self.cur_wp = data
@@ -237,11 +248,24 @@ class WaypointManager():
             #self.tf_listener.waitForTransform("base_link", src_frame, now, rospy.Duration(1.0))
             #p_in_base = self.tf_listener.transformPose("base_link", poseStamped)
         except:
-            rospy.logwarn("Error converting to base_link frame")
+            rospy.logwarn("Error converting to laser frame")
             p_in_laser = None
             self.tf_offset = rospy.Duration(0.1)
         
         return p_in_laser
+        
+    def xy_in_base(self, poseStamped):
+        src_frame = poseStamped.header.frame_id
+        p_in_base = None
+        try:
+            now = rospy.Time.now()
+            self.tf_listener.waitForTransform("base_link", src_frame, now, rospy.Duration(1.0))
+            p_in_base = self.tf_listener.transformPose("base_link", poseStamped)
+        except:
+            rospy.logwarn("Error converting to base_link frame")
+            p_in_base = None
+        
+        return p_in_base
         
     def execute(self):
         self.cur_wp.header.stamp = rospy.Time.now()
@@ -255,6 +279,9 @@ class WaypointManager():
         expected_cone_in_laser = self.xy_in_laser(self.map_wp)
         if(expected_cone_in_laser):
             self.wp_cone_in_laser.publish(expected_cone_in_laser)
+        cone_in_base = self.xy_in_base(self.cur_wp)
+        if(cone_in_base):
+            self.cur_wp_in_base_pub.publish(cone_in_base)
 
 if __name__ == '__main__':
     try:

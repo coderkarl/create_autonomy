@@ -38,8 +38,8 @@ class WaypointManager():
         
         waypoints  = np.array([
           [0, 0],
-          [1.3, -0.6],
-          [4.1, 0.0],
+          [1.0, -1.0],
+          [2.0, 0.0],
           ])
           #[6.6, 1.2]
           #])
@@ -183,8 +183,8 @@ class WaypointManager():
             dx = self.map_wp.pose.position.x - p_in_odom.pose.position.x
             dy = self.map_wp.pose.position.y - p_in_odom.pose.position.y
             dist_sqd = dx*dx + dy*dy
-            print("dist sqd: ", dist_sqd)
-            if(dist_sqd < 0.3): #0.3
+            #print("dist sqd: ", dist_sqd)
+            if(dist_sqd < 2.0): #0.3
                 self.cam_found_cone_count += 1
                 if(self.cam_found_cone_count > 1): # and self.laser_found_cone_count > 0):
                     self.cam_found_cone_count = 0

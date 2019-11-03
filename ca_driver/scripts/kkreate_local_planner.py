@@ -73,7 +73,7 @@ class PathController():
         
         #rospy.Subscriber('cmd_vel', Twist, self.drive_callback, queue_size=1)
         #rospy.Subscriber('slam_out_pose', PoseStamped, self.bot_pose_callback, queue_size = 10)
-        rospy.Subscriber('odom', Odometry, self.odom_callback, queue_size = 1)
+        rospy.Subscriber('odom_enc', Odometry, self.odom_callback, queue_size = 1)
         rospy.Subscriber('/move_base/GlobalPlanner/plan', Path, self.path_callback, queue_size = 1)
         rospy.Subscriber('/scan', LaserScan, self.scan_callback, queue_size = 1)
         #rospy.Subscriber('found_cone', Int16, self.found_cone_callback, queue_size = 5)
@@ -88,8 +88,9 @@ class PathController():
         
         self.reset_found_cone_time = rospy.Time.now()
         self.reset_found_laser_cone_time = rospy.Time.now()
+        self.last_touched_cone_time = rospy.Time.now()
         
-        self.status = PATH_STATE        
+        self.status = PATH_STATE
     
     def found_cone_callback(self, msg):
         if(msg.data > 0):
@@ -99,6 +100,7 @@ class PathController():
             self.found_cone = False
             
     def next_wp_callback(self,msg):
+        print('next wp, touched_cone = False')
         self.touched_cone = False
         
             
@@ -116,15 +118,22 @@ class PathController():
         FOV_int = int(45*3.14/180./step)
         ind1 = int(nAng/2 - FOV_int/2)
         ind2 = int(nAng/2 + FOV_int/2)
-        ind1 = 0
-        ind2 = 10
-        min_range1 = min(ranges[ind1:ind2])
-        ind1 = 350
-        ind2 = 359
-        min_range2 = min(ranges[ind1:ind2])
-        min_range = min([min_range1, min_range2])
+        #ind1 = 260 #0
+        #ind2 = 270 #10
+        #min_range1 = min(ranges[ind1:ind2])
+        #ind1 = 271 #350
+        #ind2 = 280 #359
+        #min_range2 = min(ranges[ind1:ind2])
+        #min_range = min([min_range1, min_range2])
+        
+        ind1 = 260
+        ind2 = 280
+        sub_range = np.array(ranges[ind1:ind2])
+        sub_range[sub_range < 0.1] = 99
+        min_range = min(sub_range)
         if(not self.found_cone and min_range < 0.36):
             self.reverse_flag = True
+            print("REVERSE FLAG", min_range)
         elif(self.reverse_flag and min_range > 0.45):
             self.reverse_flag = False
             
@@ -233,6 +242,7 @@ class PathController():
                 init = wp_step
                 #print "path dist: ", path_dist
                 #print "wp step: ", wp_step
+                
             for k in xrange(init,nPose,wp_step):
                 wp[0] = poses[k].pose.position.x
                 wp[1] = poses[k].pose.position.y
@@ -272,7 +282,7 @@ class PathController():
         self.local_cone_x = data.pose.position.x
         self.local_cone_y = data.pose.position.y
         dist_sqd = self.local_cone_x**2 + self.local_cone_y**2
-        print("wp_goal_in_base, dist_sqd = ", dist_sqd)
+        #print("wp_goal_in_base, dist_sqd = ", dist_sqd)
         if(dist_sqd < 0.5):
             self.found_cone = True
             print("FOUND CONE")
@@ -343,7 +353,8 @@ class PathController():
         
         # NEED TO PREVENT FALSE POSITIVE CONE BUMPS, falling off carpet to floor causes bump
         # ACTUALLY, YOU FORGOT TO RESET bump_count! Was hard to debug b/c it didn't matter until close to next cone
-        if(self.bump_count > 0 and not self.touched_cone):
+        now = rospy.Time.now()
+        if(self.bump_count > 0 and not self.touched_cone and (now-self.last_touched_cone_time).to_sec() > 1.0):
             self.v = 0
             self.w = 0
             self.bump_count = 0
@@ -353,6 +364,7 @@ class PathController():
             self.reverse_flag = True
             msg = Empty()
             self.touched_cone_pub.publish(msg)
+            self.last_touched_cone_time = rospy.Time.now()
         else:
             self.v = 0.2
             angle_error = math.atan2(self.local_cone_y,self.local_cone_x)
@@ -401,7 +413,7 @@ class PathController():
                 #print "goal: ", self.goal
         elif( len(self.waypoints) > 0 and (self.goal_reached) ): # or abs(alpha) > 3.14/2) ):
             self.goal = self.waypoints.pop(0)
-            #print "wp goal: ", self.goal
+            print "wp goal: ", self.goal
             self.goal_reached = False
         else:
             self.v = 0.
@@ -423,13 +435,16 @@ class PathController():
         out = Kp*err + Ki*self.cum_err
         
         self.status = PATH_STATE
-        if(self.stopped or self.touched_cone):
-            if(self.stopped):
-                self.status = STOPPED_STATE
-            else:
-                self.status = TOUCHED_CONE_STATE
-            self.v = 0
-            self.w = 0
+        
+        now = rospy.Time.now()
+        if( (now-self.last_touched_cone_time).to_sec() > 1.0):
+            if(self.stopped or self.touched_cone):
+                if(self.stopped):
+                    self.status = STOPPED_STATE
+                else:
+                    self.status = TOUCHED_CONE_STATE
+                self.v = 0
+                self.w = 0
         
         twist = Twist()
         twist.linear.x = self.v #Ks*v+out

@@ -1,11 +1,18 @@
 <launch>
   <include file="$(find raspicam_node)/launch/camerav2_410x308_30fps.launch" />
 
-  <include file="$(find rplidar_ros)/launch/rplidar_a3.launch" />
+  <!-- <include file="$(find rplidar_ros)/launch/rplidar_a3.launch" /> -->
+  <node pkg="xv_11_laser_driver" type="neato_laser_publisher" name="neato_lidar" args="_port:=/dev/neato_laser _firmware_version:=2 _frame_id:=laser" output="screen"/>
 
   <include file="$(find imu_rtimulib)/launch/imu_rtimulib.launch"/>
-  <node pkg="ca_driver" name="enc_gyro_odom" type="enc_gyro_odom.py"/>
+  <node pkg="ca_driver" name="enc_gyro_odom" type="enc_gyro_odom.py" output="screen"/>
 
-  <!-- <include file="$(find ca_driver)/launch/nav_kkreate.launch" /> -->  #RESTART THIS TO RESET TEST
-  <!-- <include file="$(find ca_driver)/launch/create_2.launch" /> --> #MUST RUN AFTER nav_kkreate...figure out why
+  <include file="$(find ca_driver)/launch/nav_kkreate.launch" />  #RESTART THIS TO RESET TEST
+  <include file="$(find ca_driver)/launch/create_2.launch" /> #MUST RUN AFTER nav_kkreate...figure out why
+
+  <node pkg="ca_driver" name="waypoints_kkreate" type="waypoints_kkreate.py" output="screen"/>
+
+  <node pkg="ca_driver" name="kkreate_cone_in_scan" type="kkreate_cone_in_scan.py"/>
+
+  <include file="$(find cone_finder)/launch/cone_finder_offboard.launch" />
 </launch>

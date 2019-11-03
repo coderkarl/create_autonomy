@@ -22,12 +22,6 @@ class KreateOdom():
         self.tf_listener = tf.TransformListener()
         
         rospy.init_node('kkreate_odom')
-        rospy.Subscriber('imu', Imu, self.imu_callback, queue_size=2)
-        rospy.Subscriber('joint_states', JointState, self.enc_callback, queue_size=2)
-        rospy.Subscriber('odom_enc', Odometry, self.odom_enc_callback, queue_size = 1)
-        
-        self.odom_pub = rospy.Publisher('odom_gyro', Odometry, queue_size=5)
-        self.odom_broadcaster = tf.TransformBroadcaster()
         
         self.prev_time = rospy.Time.now()
         
@@ -46,11 +40,6 @@ class KreateOdom():
         self.enc_init_flag = False
         print('Initializing kkreate odom.')
         
-        while(not self.enc_init_flag):
-            time.sleep(0.1)
-            self.prev_left_enc = self.left_enc
-            self.prev_right_enc = self.right_enc
-        
         self.dist_sum = 0
         self.time_sum = 0
         self.vx = 0
@@ -58,6 +47,22 @@ class KreateOdom():
         self.bot_deg = 0
         self.botx = 0
         self.boty = 0
+        
+        self.gyro_sum = 0.0
+        self.gyro_count = 0
+        self.gyro_bias_rad = 0.0
+        
+        rospy.Subscriber('imu', Imu, self.imu_callback, queue_size=2)
+        rospy.Subscriber('joint_states', JointState, self.enc_callback, queue_size=2)
+        rospy.Subscriber('odom_enc', Odometry, self.odom_enc_callback, queue_size = 1)
+        
+        self.odom_pub = rospy.Publisher('odom_gyro', Odometry, queue_size=5)
+        self.odom_broadcaster = tf.TransformBroadcaster()
+        
+        while(not self.enc_init_flag):
+            time.sleep(0.1)
+            self.prev_left_enc = self.left_enc
+            self.prev_right_enc = self.right_enc
     
     def odom_enc_callback(self,msg):
         x = msg.pose.pose.position.x
@@ -82,6 +87,12 @@ class KreateOdom():
         accx = data.linear_acceleration.x
         accy = data.linear_acceleration.y
         self.gyroz_rad = data.angular_velocity.z
+        if(self.gyro_count < 100):
+            self.gyro_count += 1
+            self.gyro_sum += self.gyroz_rad
+            if(self.gyro_count == 100):
+                self.gyro_bias_rad = self.gyro_sum / self.gyro_count
+                print('gyro bias deg: ', self.gyro_bias_rad*180/3.14)
                 
     def update_odom(self):
         t2 = rospy.Time.now()
@@ -89,8 +100,8 @@ class KreateOdom():
         self.prev_time = t2
         dt = (t2-t1).to_sec()
         
-        gyro_thresh_dps = 0.00
-        g_bias_dps = 0.01
+        gyro_thresh_dps = 0.04*180/3.14159
+        g_bias_dps = 0 #self.gyro_bias_rad*180/3.14159
         MAX_DTHETA_GYRO_deg = 100
         BOT_WIDTH = 0.235 #meters
         COUNTS_PER_METER = 1.0
@@ -119,15 +130,15 @@ class KreateOdom():
         self.enc_dmeters = 0.0
         #print 'dmeters: ', dmeters
         
-        if(abs(gyroz_raw_dps+g_bias_dps) < gyro_thresh_dps):
+        if(abs(gyroz_raw_dps-g_bias_dps) < gyro_thresh_dps):
             gz_dps = 0
             dtheta_gyro_deg = 0
         else:
-            gz_dps = gyroz_raw_dps+g_bias_dps
+            gz_dps = gyroz_raw_dps-g_bias_dps
             dtheta_gyro_deg = gz_dps*dt #*375.0/360.0 #HACK, WHY!!??
 
         if(abs(dtheta_gyro_deg) > 100.0):
-            #print 'no gyro'
+            print 'no gyro'
             dtheta_deg = dtheta_enc_deg
         else:
             #print 'use gyro'
@@ -159,7 +170,7 @@ class KreateOdom():
         (self.botx, self.boty, 0.),
         odom_quat,
         t2,
-        "base_link_gyro",
+        "base_link",
         "odom"
         )
         
@@ -171,7 +182,7 @@ class KreateOdom():
         odom.pose.pose = Pose(Point(self.botx, self.boty, 0.), Quaternion(*odom_quat))
 
         # set the velocity
-        odom.child_frame_id = "base_link_gyro"
+        odom.child_frame_id = "base_link"
         odom.twist.twist = Twist(Vector3(self.vx, 0, 0), Vector3(0, 0, gz_dps*3.1416/180.0))
 
         # odom twist covariance

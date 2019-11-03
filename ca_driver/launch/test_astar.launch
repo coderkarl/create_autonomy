@@ -3,9 +3,13 @@
     <param name="obs_thresh" value="30" />
     <param name="obs_weight" value="0.1" />
     <param name="max_plan_time_sec" value="10.0" />
-    <param name="rx_odom" value="false" /> #true for sim
+    <!-- This is just using move_base plan service. It does not use my astar. -->
+    <param name="rx_odom" value="true" /> #true for sim or NOT hector_slam pose
+    <remap from="odom" to="odom_gyro" />
+    <!-- May need to tell plan service to use "map" frame when planning -->
     <!-- <remap from="wp_goal" to="/move_base_simple/goal" /> --> #for debugging
     <remap from="costmap" to="/move_base/global_costmap/costmap" />
+    <!-- The costmap may not be published frequently if it is a static map ? -->
   </node>
   
 </launch>

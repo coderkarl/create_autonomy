@@ -290,7 +290,7 @@ class PathController():
             self.found_cone = False
             
         self.local_cone_angle = math.atan2(self.local_cone_y, self.local_cone_x)
-        if(abs(self.local_cone_angle) < 20.0*3.14/180.0):
+        if(abs(self.local_cone_angle) < 90.0*3.14/180.0):
             self.turn_to_cone = False
         else:
             self.turn_to_cone = True
@@ -347,7 +347,7 @@ class PathController():
             
         cone_close = False
         for k in range(6):
-            if(self.ir_sensors[k] > 30 or self.local_cone_x < 0.4):
+            if(self.ir_sensors[k] > 30 or self.local_cone_x < 0.3):
                 cone_close = True
                 break
         
@@ -372,9 +372,9 @@ class PathController():
             self.w = 1.0*angle_error
             if(abs(self.w) > 1.0):
                 self.w = 1.0*np.sign(self.w)
-                self.v = 0.05 #0.1 or 0.05 for cam vs laser cone find
+                self.v = 0.1 #0.1 or 0.05 for cam vs laser cone find
             if(cone_close):
-                self.v = 0.05
+                self.v = 0.1
         
         self.status = SEEKING_CONE_STATE
         if(self.stopped or self.touched_cone):

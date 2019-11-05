@@ -1,0 +1,61 @@
+﻿<launch>
+  <node pkg="tf" type="static_transform_publisher" name="map_to_odom" args="0.0 0.0 0.0 0 0 0.0 /map /odom 10"/>
+
+  <!-- odom_enc is from the create2 driver, odom_gyro is odom_enc + gyro -->
+
+  <include file="$(find ca_driver)/launch/create_2.launch" />
+  <include file="$(find raspicam_node)/launch/camerav2_410x308_30fps.launch" />
+
+  <!-- <include file="$(find rplidar_ros)/launch/rplidar_a3.launch" /> -->
+  <node pkg="xv_11_laser_driver" type="neato_laser_publisher" name="neato_lidar" args="_port:=/dev/neato_laser _firmware_version:=2 _frame_id:=laser" output="screen"/>
+  
+  # See can2ros_wheele, imu_can:imu_stream
+  <!-- <include file="$(find imu_rtimulib)/launch/imu_rtimulib.launch"/> -->
+  <node pkg="nxp_imu" name="read_nxp" type="read_nxp.py" output="screen"/>
+  <node pkg="ca_driver" name="enc_gyro_odom" type="enc_gyro_odom.py" output="screen">
+    <remap from="/odom_gyro" to="/odom"/>
+  </node>
+  
+  <node pkg="avoid_obstacles" type="nav_states" name="nav_states" output="screen">
+    <remap from="/cam_cone_pose" to="/raw_cone_pose"/>
+    <rosparam>
+      plan_rate_hz: 10.0
+      use_PotFields: false
+      close_cone_to_bot_dist: 11.0
+      valid_cone_to_wp_dist: 11.0
+      near_path_dist: 1.0
+      valid_end_of_path_dist: 5.0
+      desired_speed: 1.0
+      slow_speed: 0.4
+      max_omega: 2.0
+      max_fwd_heading_error_deg: 180.0
+      search_time: 2.0
+      search_omega: 0.8
+      reverse_time: 1.0
+      cmd_control_ver: 0
+      scan_collision_db_limit: 4
+      scan_collision_range: 0.5
+      cone_detect_db_limit: 1
+      cmd_speed_filter_factor: 0.5
+      report_bumped_obstacles: true
+      max_camera_search_time: 30.0
+      slow_approach_distance: 2.0
+      reverse_speed: 0.8
+      bump_db_limit: 2
+      path_step_size: 3
+
+      waypoints_are_in_map_frame: true
+    </rosparam>
+
+    <rosparam param="x_coords">[10,  0,  25, 27]</rosparam>
+    <rosparam param="y_coords">[0, -15, -15, 30]</rosparam>
+    <rosparam param="waypoint_types">[0, 1, 1, 1]</rosparam>
+    <rosparam param="hill_waypoint_list">[0, 0, 0, 0]</rosparam>
+  </node>
+
+  <include file="$(find ca_driver)/launch/kkreate_avoid_obstacles.launch" />
+
+  <node pkg="ca_driver" name="kkreate_cone_in_scan" type="kkreate_cone_in_scan.py"/>
+  <include file="$(find cone_finder)/launch/cone_finder_offboard.launch" />
+
+</launch>

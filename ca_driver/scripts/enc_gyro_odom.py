@@ -9,6 +9,7 @@ from nav_msgs.msg import Odometry
 import tf
 from geometry_msgs.msg import Twist, Quaternion, Point, Pose, Vector3, Vector3Stamped
 from sensor_msgs.msg import Imu, JointState
+from ca_msgs.msg import Bumper
 
 import time
 import sys
@@ -52,9 +53,12 @@ class KreateOdom():
         self.gyro_count = 0
         self.gyro_bias_rad = 0.0
         
+        self.bump_switch_pub = rospy.Publisher('bump_switch', Int16, queue_size = 1)
+        
         rospy.Subscriber('imu', Imu, self.imu_callback, queue_size=2)
         rospy.Subscriber('joint_states', JointState, self.enc_callback, queue_size=2)
         rospy.Subscriber('odom_enc', Odometry, self.odom_enc_callback, queue_size = 1)
+        rospy.Subscriber('bumper', Bumper, self.bumper_callback, queue_size=2)
         
         self.odom_pub = rospy.Publisher('odom_gyro', Odometry, queue_size=5)
         self.odom_broadcaster = tf.TransformBroadcaster()
@@ -63,6 +67,17 @@ class KreateOdom():
             time.sleep(0.1)
             self.prev_left_enc = self.left_enc
             self.prev_right_enc = self.right_enc
+    
+    def bumper_callback(self, data):
+        bumped_cone = data.is_left_pressed or data.is_right_pressed
+        ir_sensors = [data.light_signal_left, data.light_signal_front_left, data.light_signal_center_left,
+                           data.light_signal_center_right, data.light_signal_front_right, data.light_signal_right]
+        raw_sig = Int16()
+        if( (bumped_cone and max(ir_sensors[1:4]) > 100) or max(ir_sensors[1:4]) > 600):
+            raw_sig.data = 1
+        else:
+            raw_sig.data = 0
+        self.bump_switch_pub.publish(raw_sig)
     
     def odom_enc_callback(self,msg):
         x = msg.pose.pose.position.x

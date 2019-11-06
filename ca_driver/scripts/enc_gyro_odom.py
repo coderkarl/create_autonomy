@@ -116,7 +116,7 @@ class KreateOdom():
         dt = (t2-t1).to_sec()
         
         gyro_thresh_dps = 0.04*180/3.14159
-        g_bias_dps = 0 #self.gyro_bias_rad*180/3.14159
+        g_bias_dps = self.gyro_bias_rad*180/3.14159
         MAX_DTHETA_GYRO_deg = 100
         BOT_WIDTH = 0.235 #meters
         COUNTS_PER_METER = 1.0
@@ -150,7 +150,7 @@ class KreateOdom():
             dtheta_gyro_deg = 0
         else:
             gz_dps = gyroz_raw_dps-g_bias_dps
-            dtheta_gyro_deg = gz_dps*dt #*375.0/360.0 #HACK, WHY!!??
+            dtheta_gyro_deg = gz_dps*dt*1.002 #*375.0/360.0 #HACK, WHY!!??
 
         if(abs(dtheta_gyro_deg) > 100.0):
             print 'no gyro'

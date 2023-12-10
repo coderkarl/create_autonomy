@@ -21,23 +21,23 @@ class LaserConeDetect():
         self.pub_cone_pose = rospy.Publisher("laser_cone_pose", PoseStamped, queue_size = 10)
         
         #rospy.Subscriber('cmd_vel', Twist, self.drive_callback, queue_size=1)
-        rospy.Subscriber('odom', Odometry, self.odom_callback, queue_size = 1)
+        #rospy.Subscriber('odom', Odometry, self.odom_callback, queue_size = 1)
         rospy.Subscriber('/scan', LaserScan, self.scan_callback, queue_size = 1)
         rospy.Subscriber('expected_cone_in_laser', PoseStamped, self.expected_cone_pose_callback, queue_size=5)
         
         reset_found_cone_time = rospy.Time.now()
         
-        self.debug_count = 0
+        self.debug_count = 1
         self.scan_count = 0
         
-        self.search_angle_index = 0
+        self.search_angle_index = 270 #0 for rplidar, 270 for neato
         self.nNeighbors = 12
     
     def expected_cone_pose_callback(self,data):
         x = data.pose.position.x
         y = data.pose.position.y
         angle_deg = math.atan2(y,x)*180/3.14
-        search_angle_index = int(angle_deg+180)
+        search_angle_index = int(angle_deg-180) #+180 for rplidar, -90 for neato_cable_left
         self.search_angle_index = search_angle_index % 360 # this is only valid for rplidar with angle_increment = 1 deg
     
     def scan_callback(self, data):
@@ -48,7 +48,7 @@ class LaserConeDetect():
         step = data.angle_increment
         nAng = len(ranges)
         
-        angles = np.linspace(amin, amax, nAng) + 3.14 #hard coded laser to base_link tf
+        angles = np.linspace(amin, amax, nAng) + 3.14/2 #hard coded laser to base_link tf, + 3.14 for rplidar
         ranges_np = np.array(ranges)
         x_all = ranges_np*np.cos(angles)
         y_all = ranges_np*np.sin(angles)
@@ -68,10 +68,10 @@ class LaserConeDetect():
         #    8 cm radius, 90 deg, is .08*3.14/2 = 0.12 m arc length desired
         #    1 m away, point spacing will be about pi/180*1m
         cone_radius = 0.08 # meters
-        nNeighbors = self.nNeighbors
         des_circle_portion_deg = 90
         des_arc_length = 3.14/180*des_circle_portion_deg * cone_radius
         min_neighbors = 4
+        max_neighbors = 16
         
         if(self.scan_count >= 2):
             start = rospy.Time.now()
@@ -83,16 +83,21 @@ class LaserConeDetect():
             nom_ind = self.search_angle_index
             offset_list = [0,-1,1,-2,2,-3,3,-4,4,-5,5,-6,6,-7,7,-8,8]*2 #search around self.search_angle_index
             for offset in offset_list:
-                center_ind = nom_ind +offset 
+                center_ind = nom_ind +offset
+                nNeighbors = self.nNeighbors
                 i = (center_ind + int(nNeighbors/2)) % nAng #i is the right index, should be 0 to 359
-                
+                #print('i: ', i)
+                #print('first nNeighbors: ', nNeighbors)
                 xmid = x_all[i-int(nNeighbors/2)]
                 ymid = y_all[i-int(nNeighbors/2)]
-                if(abs(xmid)  < 10 and abs(ymid) < 10):
+                if(abs(xmid)  < 3 and abs(ymid) < 3):
                     dist = np.sqrt(xmid**2 + ymid**2)
                     ddist = 3.14/180*dist #should use angle_increment, not 3.14/180
                     if(dist > 0):
                         nNeighbors = max(int(des_arc_length/ddist),min_neighbors)
+                        nNeighbors = min(nNeighbors, max_neighbors)
+                        #print('second nNeighbors: ', nNeighbors)
+                        i = (center_ind + int(nNeighbors/2)) % nAng #i is the right index, should be 0 to 359
                 if(i-nNeighbors < 0):
                     xvec = x_all[i-nNeighbors:]+x_all[:i]
                     yvec = y_all[i-nNeighbors:]+y_all[:i]
@@ -105,7 +110,13 @@ class LaserConeDetect():
                         has_inf = True
                         break
                 if(not has_inf):
+                    #if(self.debug_count < 5):
+                    #    print("*** cone search ***")
+                    #    print(xvec)
+                    #    print(yvec)
                     [xc,yc,R,resid] = leastsq_circle(xvec,yvec)
+                    #if(self.debug_count < 5):
+                    #    print(R,resid)
                     if(0.07 < R and R < 0.09 and resid < 3e-5): #0.06 to 0.1, 5e-5
                         #circle_x.append(xc)
                         #circle_y.append(yc)
@@ -126,7 +137,7 @@ class LaserConeDetect():
                                 self.pub_cone_pose.publish(cone_pose)
                                 #print(xvec)
                                 #print(yvec)
-                                print(xc, yc, R, resid)
+                                #print(xc, yc, R, resid)
                             #end new min
                         #end if convex
                     #end good R
@@ -135,7 +146,7 @@ class LaserConeDetect():
             #if(laser_cone_found):
             #    self.pub_cone_pose.publish(cone_pose)
             print("duration: ", (rospy.Time.now()-start).to_sec())
-            self.nNeighbors = nNeighbors
+            #self.nNeighbors = nNeighbors # keep initial nNeighbors at 12
         #end if every other scan
         
     
@@ -204,20 +215,6 @@ class LaserConeDetect():
             n += 1
         #end while
         print("duration: ", (rospy.Time.now()-start).to_sec())
-            
-    
-    def odom_callback(self,odom):
-        # This odom pose is in the odom frame, we want the pose in the map frame
-        #   Now done in execute_plan() at a fixed rate using a tf.TransformListener()
-        #~ quat = odom.pose.pose.orientation
-        #~ quat_list = [quat.x, quat.y, quat.z, quat.w]
-        #~ (roll, pitch, yaw) = euler_from_quaternion (quat_list)
-        
-        #~ self.state[0] = odom.pose.pose.position.x + 5.0
-        #~ self.state[1] = odom.pose.pose.position.y
-        #~ self.state[2] = yaw
-        
-        self.vx = odom.twist.twist.linear.x
             
     def raw_cone_callback(self, data):
         self.local_cone_x = data.pose.position.x

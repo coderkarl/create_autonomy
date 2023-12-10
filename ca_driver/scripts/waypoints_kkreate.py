@@ -38,8 +38,8 @@ class WaypointManager():
         
         waypoints  = np.array([
           [0, 0],
-          [1.3, -0.6],
-          [4.1, 0.0],
+          [1.0, -1.0],
+          [2.0, 0.0],
           ])
           #[6.6, 1.2]
           #])
@@ -183,15 +183,15 @@ class WaypointManager():
             dx = self.map_wp.pose.position.x - p_in_odom.pose.position.x
             dy = self.map_wp.pose.position.y - p_in_odom.pose.position.y
             dist_sqd = dx*dx + dy*dy
-            print("dist sqd: ", dist_sqd)
-            if(dist_sqd < 0.3): #0.3
+            #print("dist sqd: ", dist_sqd)
+            if(dist_sqd < 0.5): #0.3
                 self.cam_found_cone_count += 1
-                if(self.cam_found_cone_count > 1): # and self.laser_found_cone_count > 0):
+                if(self.cam_found_cone_count > 0): # and self.laser_found_cone_count > 0):
                     self.cam_found_cone_count = 0
                     print("publish cone wp_goal")
                     self.cur_wp = p_in_odom
                     self.wp_pub.publish(self.cur_wp)
-                    if(data.pose.position.x < 0.7 and abs(data.pose.position.y) < 0.3): #Do NOT go straight to cone unless we are close, this should keep us on the global path around obstacles, even if we see thru obs
+                    if(data.pose.position.x < 1.0 and abs(data.pose.position.y) < 0.5): #Do NOT go straight to cone unless we are close, this should keep us on the global path around obstacles, even if we see thru obs
                         msg = Int16() #NOTE, this is not used now by local planner
                         msg.data = 1
                         self.found_cone_pub.publish(msg)
@@ -205,9 +205,9 @@ class WaypointManager():
             dy = self.map_wp.pose.position.y - p_in_odom.pose.position.y
             dist_sqd = dx*dx + dy*dy
             print("dist sqd: ", dist_sqd)
-            if(dist_sqd < 0.3): #use 0.5, 2.0 for testing
+            if(dist_sqd < 0.5): #use 0.5, 2.0 for testing
                 self.laser_found_cone_count += 1
-                if(self.laser_found_cone_count > 1):
+                if(self.laser_found_cone_count > 0):
                     #self.laser_found_cone_count = 0
                     if(data.pose.position.x < 0.7):
                         print("publish laser cone near wp_goal")
